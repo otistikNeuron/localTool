@@ -1,0 +1,11 @@
+services:
+  payload-server:
+    build: ./server
+    container_name: payload-server
+    ports:
+      - "8000:80"
+    volumes:
+      - ./server/public/firststp:/var/www/html/firststp
+      - ./server/public/2ndd:/var/www/html/2ndd
+      - ./server/public/last:/var/www/html/last
+    restart: unless-stopped
