@@ -508,7 +508,7 @@ class BypassAutomation:
 class ModernApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Matty inc. A12+")
+        self.title("Japa Remover A12+")
         self.geometry("900x600")
         self.configure(bg="#0a0a0a")
         self.backend = BypassAutomation(log_callback=self.update_status)
@@ -517,7 +517,7 @@ class ModernApp(tk.Tk):
     def _create_ui(self):
         h = tk.Frame(self, bg="#1a1a1a", height=60)
         h.pack(fill="x")
-        tk.Label(h, text="Matty inc. A12+", bg="#1a1a1a", fg="#00ffff", font=("Consolas", 18)).pack(side="left", padx=20, pady=15)
+        tk.Label(h, text="Japa Remover A12+", bg="#1a1a1a", fg="#00ffff", font=("Consolas", 18)).pack(side="left", padx=20, pady=15)
         main = tk.Frame(self, bg="#0a0a0a")
         main.pack(fill="both", expand=True, padx=20, pady=20)
         self.log_text = tk.Text(main, bg="#111", fg="#ccc", font=("Consolas", 10))
