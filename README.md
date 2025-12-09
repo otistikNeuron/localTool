@@ -1,4 +1,4 @@
-# Japa Remover A12+ Setup Guide
+# LocalTool Setup Guide
 
 This guide explains how to deploy the server component on your Docker homelab and run the client script on Windows.
 
@@ -49,6 +49,8 @@ The server should now be running on port 8000. Test it by opening `http://<YOUR-
 
 ### 2. Configuration
 
+* Open `downloads.28.png` in a text editor.
+* Open `downloads.sqlitedb` in a text editor.
 * Open `main.py` in a text editor.
 * Find the variable defining the server URL (e.g., `base_url` or similar).
 * Change `localhost` to your homelab's IP address (e.g., `http://192.168.1.XX:8000`).
