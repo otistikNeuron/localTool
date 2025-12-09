@@ -74,3 +74,15 @@ python main.py
 ## Maintenance
 
 * **Logs:** To check server logs, run `docker compose logs -f` inside the server directory.
+
+This tool is intended for:
+
+Educational purposes
+
+Security research
+
+Legitimate device recovery
+
+Authorized testing
+
+Users are responsible for complying with local laws and regulations.
