@@ -1,4 +1,4 @@
-# LocalTool Setup Guide
+# Matty inc. A12+ Setup Guide
 
 This guide explains how to deploy the server component on your Docker homelab and run the client script on Windows.
 
