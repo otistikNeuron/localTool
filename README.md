@@ -1,17 +1,17 @@
-# LocalTool Setup Guide
+# Japa Remover A12+ Setup Guide
 
 This guide explains how to deploy the server component on your Docker homelab and run the client script on Windows.
 
 ## 1. Server Side (Docker Homelab)
 
-**Path:** `/path/to/your/docker/localtool`
+**Path:** `/path/to/your/docker/japaRemover`
 
 ### 1. Prepare Directory
 
 On your homelab server, create a new directory for this tool:
 
 ```bash
-mkdir -p /path/to/your/docker/localtool
+mkdir -p /path/to/your/docker/japaRemover
 ```
  
 ### 2. Transfer Files
@@ -19,7 +19,7 @@ mkdir -p /path/to/your/docker/localtool
 Copy the `docker-compose.yml` file and the entire `server` folder into the directory you created. The structure should look like this:
 
 ```
-/path/to/your/docker/localtool/
+/path/to/your/docker/japaRemover/
 ├── docker-compose.yml
 └── server/
     ├── Dockerfile
@@ -33,7 +33,7 @@ Copy the `docker-compose.yml` file and the entire `server` folder into the direc
 Navigate to the directory and start the container:
 
 ```bash
-cd /path/to/your/docker/localtool
+cd /path/to/your/docker/japaRemover
 docker compose up -d --build
 ```
 
