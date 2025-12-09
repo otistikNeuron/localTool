@@ -13,7 +13,7 @@ On your homelab server, create a new directory for this tool:
 ```bash
 mkdir -p /path/to/your/docker/localtool
 ```
-
+ 
 ### 2. Transfer Files
 
 Copy the `docker-compose.yml` file and the entire `server` folder into the directory you created. The structure should look like this:
