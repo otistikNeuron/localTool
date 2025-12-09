@@ -4,14 +4,14 @@ This guide explains how to deploy the server component on your Docker homelab an
 
 ## 1. Server Side (Docker Homelab)
 
-**Path:** `/path/to/your/docker/japaRemover`
+**Path:** `/path/to/your/docker/japaremover`
 
 ### 1. Prepare Directory
 
 On your homelab server, create a new directory for this tool:
 
 ```bash
-mkdir -p /path/to/your/docker/japaRemover
+mkdir -p /path/to/your/docker/japaremover
 ```
  
 ### 2. Transfer Files
@@ -19,7 +19,7 @@ mkdir -p /path/to/your/docker/japaRemover
 Copy the `docker-compose.yml` file and the entire `server` folder into the directory you created. The structure should look like this:
 
 ```
-/path/to/your/docker/japaRemover/
+/path/to/your/docker/japaremover/
 ├── docker-compose.yml
 └── server/
     ├── Dockerfile
@@ -33,7 +33,7 @@ Copy the `docker-compose.yml` file and the entire `server` folder into the direc
 Navigate to the directory and start the container:
 
 ```bash
-cd /path/to/your/docker/japaRemover
+cd /path/to/your/docker/japaremover
 docker compose up -d --build
 ```
 
