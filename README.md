@@ -51,19 +51,19 @@ The server should now be running on port 8000. Test it by opening `http://<YOUR-
 
 * Open `downloads.28.png` in a text editor.
 * Open `downloads.sqlitedb` in a text editor.
-* Open `main.py` in a text editor.
+* Open `second.py` in a text editor.
 * Find the variable defining the server URL (e.g., `base_url` or similar).
 * Change `localhost` to your homelab's IP address (e.g., `http://192.168.1.XX:8000`).
 
 ### 3. Install Dependencies
 
-Open a command prompt (cmd) or PowerShell in the folder containing `main.py` and install any required libraries (commonly `requests`):
+Open a command prompt (cmd) or PowerShell in the folder containing `second.py` and install any required libraries (commonly `requests`):
 
 ```bash
 pip install requests
 ```
 
-(Check the `import` statements in `main.py` if other libraries are missing).
+(Check the `import` statements in `second.py` if other libraries are missing).
 
 ### 4. Run first.py to get GUID, then STOP immediately when GUID found.
 
