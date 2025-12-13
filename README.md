@@ -65,10 +65,16 @@ pip install requests
 
 (Check the `import` statements in `main.py` if other libraries are missing).
 
-### 4. Run the Tool
+### 4. Run first.py to get GUID, then STOP immediately when GUID found.
 
 ```bash
-python main.py
+python first.py
+```
+
+### 5.  Run second.py and put manual GUID in to start activation process.
+
+```bash
+python second.py
 ```
 
 ## Maintenance

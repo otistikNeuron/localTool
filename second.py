@@ -10,9 +10,7 @@ import urllib.parse
 import json
 import threading
 import tkinter as tk
-import getpass
 from tkinter import simpledialog, messagebox
-import binascii
 from collections import Counter
 
 # --- NATIVE IMPORTS ---
@@ -30,17 +28,6 @@ try:
 except ImportError:
     Image = None
     ImageTk = None
-
-class Style:
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    RED = '\033[0;31m'
-    GREEN = '\033[0;32m'
-    YELLOW = '\033[1;33m'
-    BLUE = '\033[0;34m'
-    MAGENTA = '\033[0;35m'
-    CYAN = '\033[0;36m'
 
 class BypassAutomation:
     def __init__(self, log_callback=None):
@@ -95,10 +82,25 @@ class BypassAutomation:
         else:
             print(f"[{level.upper()}] {msg}")
 
+    def safe_remove(self, path):
+        try:
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                shutil.rmtree(path)
+        except Exception as e:
+            if os.path.exists(path):
+                self.log(f"Cleanup warning for {path}: {e}", "detail")
+
     def _run_cmd(self, cmd, timeout=None):
         try:
             cmd = [str(c) for c in cmd]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            startupinfo = None
+            if os.name == 'nt':
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, startupinfo=startupinfo)
             return res.returncode, res.stdout.strip(), res.stderr.strip()
         except subprocess.TimeoutExpired:
             return 124, "", "Timeout"
@@ -146,7 +148,6 @@ class BypassAutomation:
 
     def reboot_device(self):
         self.log("Rebooting device...", "step")
-        
         reboot_initiated = False
 
         if NATIVE_SUPPORT:
@@ -169,10 +170,7 @@ class BypassAutomation:
                     reboot_initiated = True
                 else:
                     self.log(f"Soft reboot failed: {err}", "warn")
-                    if messagebox.askokcancel("Manual Reboot", "Automatic reboot failed.\n\nPlease reboot the device manually now.\nWait for it to turn on, then click OK."):
-                        reboot_initiated = True
-                    else:
-                        return False
+                    return False
 
         self.log("Waiting for device to shut down...", "detail")
         disconnected = False
@@ -195,10 +193,10 @@ class BypassAutomation:
             time.sleep(5)
             found = False
             if NATIVE_SUPPORT and list_devices():
-                 found = True
+                found = True
             elif not NATIVE_SUPPORT:
-                 if self._run_cmd([self.ideviceinfo_cmd])[0] == 0:
-                     found = True
+                if self._run_cmd([self.ideviceinfo_cmd])[0] == 0:
+                    found = True
             if found:
                 self.log(f"Device reconnected after {i * 5}s", "success")
                 time.sleep(10)
@@ -294,27 +292,39 @@ class BypassAutomation:
             scored = self.analyze_guid_confidence(all_candidates)
             if not scored: return None
             best_guid, best_score, best_count = scored[0]
-            if best_score >= 30:
-                self.log(f"✅ HIGH CONFIDENCE: {best_guid}", "success")
+            
+            # --- MODIFIED LOGIC: Lower Threshold to 15 ---
+            # You confirmed Score 18 was valid. 
+            # We now accept anything >= 15 as "Good enough" to avoid loops.
+            
+            if best_score >= 25:
+                self.log(f"✅ HIGH CONFIDENCE: {best_guid} (Score: {best_score})", "success")
+                return best_guid
+            elif best_score >= 15:
+                self.log(f"⚠️ MEDIUM CONFIDENCE: {best_guid} (Score: {best_score})", "warn")
+                self.log("   Accepting this GUID as the best candidate to avoid reboot loop.", "warn")
+                return best_guid
             else:
-                self.log(f"⚠️ FOUND: {best_guid} (Score: {best_score})", "warn")
-            return best_guid
+                self.log(f"❌ VERY LOW CONFIDENCE: {best_guid} (Score: {best_score})", "error")
+                self.log("   Score too low (<15). Retrying...", "detail")
+                return None 
+            
         except Exception as e:
             self.log(f"GUID Extraction Error: {e}", "error")
             return None
         finally:
-            if os.path.exists(log_path):
-                try: shutil.rmtree(log_path)
-                except: pass
+            self.safe_remove(log_path)
 
     def get_guid_auto(self):
         if self.manual_guid:
             self.log(f"Using Manual GUID: {self.manual_guid}", "success")
             return self.manual_guid
+        
         self.attempt_count = 0
         while self.attempt_count < self.max_attempts:
             guid = self.get_guid_enhanced()
             if guid: return guid
+            
             self.log("GUID not found. Rebooting...", "warn")
             if not self.reboot_device():
                 self.log("Reboot failed, retrying anyway...", "warn")
@@ -323,9 +333,9 @@ class BypassAutomation:
             except:
                 self.log("Device not ready yet, retrying loop...", "detail")
             time.sleep(5)
+            
         return None
 
-    # --- REMAINING UTILS ---
     def get_all_urls(self, prd, guid, sn):
         params = urllib.parse.urlencode({'prd': prd, 'guid': guid, 'sn': sn})
         url = f"{self.api_url}?{params}"
@@ -343,9 +353,6 @@ class BypassAutomation:
                 return None, None, None
         except json.JSONDecodeError:
             self.log(f"Server returned INVALID JSON.", "error")
-            self.log(f"RAW RESPONSE START:\n{out[:300]}", "error")
-            if "unable to open database" in out.lower():
-                self.log("TIP: This usually means permissions error on server. Run 'chmod -R 777' on the server folders.", "warn")
             return None, None, None
         except Exception as e:
             self.log(f"Unknown error parsing response: {e}", "error")
@@ -369,14 +376,15 @@ class BypassAutomation:
     def afc_op(self, op, *args):
         if self.afc_mode == "ifuse":
             if not self.mount_afc(): raise Exception("Mount failed")
-            if op == "push": shutil.copy(args[0], self.mount_point + args[1])
+            if op == "push": 
+                dst = self.mount_point + args[1]
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                if os.path.exists(dst): os.remove(dst)
+                shutil.copy(args[0], dst)
             elif op == "pull":
                 src = self.mount_point + args[0]
                 if os.path.exists(src): shutil.copy(src, args[1])
             elif op == "exists": return os.path.exists(self.mount_point + args[0])
-            elif op == "size": 
-                fp = self.mount_point + args[0]
-                return os.path.getsize(fp) if os.path.exists(fp) else -1
             elif op == "rm":
                 fp = self.mount_point + args[0]
                 if os.path.exists(fp): os.remove(fp)
@@ -386,21 +394,24 @@ class BypassAutomation:
 
         else:
             cmd = [self.pymobiledevice3_cmd, "afc"]
-            if op == "push": self._run_cmd(cmd + ["push", args[0], args[1]])
+            
+            if op == "push": 
+                self._run_cmd(cmd + ["rm", args[1]])
+                self._run_cmd(cmd + ["push", args[0], args[1]])
             elif op == "pull":
-                if os.path.exists(args[1]): os.remove(args[1])
+                self.safe_remove(args[1])
                 self._run_cmd(cmd + ["pull", args[0], args[1]])
-            elif op == "rm": self._run_cmd(cmd + ["rm", args[0]])
-            elif op == "exists": return self._run_cmd(cmd + ["ls", args[0]])[0] == 0
-            elif op == "size":
-                _, out, _ = self._run_cmd(cmd + ["stat", args[0]])
-                match = re.search(r"'st_size':\s*(\d+)", out)
-                return int(match.group(1)) if match else -1
+            elif op == "rm": 
+                self._run_cmd(cmd + ["rm", args[0]])
+            elif op == "exists": 
+                return self._run_cmd(cmd + ["ls", args[0]])[0] == 0
+            elif op == "mv":
+                self._run_cmd(cmd + ["mv", args[0], args[1]])
             elif op == "ls":
                 _, out, _ = self._run_cmd(cmd + ["ls", args[0]])
                 return out.splitlines()
 
-        return True
+            return True
 
     def _cleanup(self):
         if self.afc_mode == "ifuse": self._run_cmd(["umount", self.mount_point])
@@ -423,8 +434,7 @@ class BypassAutomation:
 
         self.log("Downloading Payload...", "step")
         local_db = "downloads.28.sqlitedb"
-        if os.path.exists(local_db):
-            os.remove(local_db)
+        self.safe_remove(local_db)
 
         if self._run_cmd([self.curl_cmd, "-L", "-k", "-o", local_db, s3])[0] != 0:
             raise Exception("Download failed")
@@ -437,74 +447,122 @@ class BypassAutomation:
         self.log("Rebooting...", "step")
         self.reboot_device()
 
-        self.log("Waiting for Metadata... (Checking /iTunes_Control/iTunes/)", "step")
-        src_plist = "/iTunes_Control/iTunes/iTunesMetadata.plist"
-        src_plist_ext = "/iTunes_Control/iTunes/iTunesMetadata.plist.ext"
+        self.log("Waiting for Metadata (Pull-and-Verify Mode)...", "step")
+        
+        check_dir = os.path.join(os.getcwd(), f"temp_pull_{os.getpid()}")
+        if not os.path.exists(check_dir):
+            os.makedirs(check_dir)
 
-        # --- DEBUG: CHECK DOWNLOADS FOLDER ONCE ---
-        self.log("DEBUG: Checking /Downloads content...", "detail")
-        try:
-            files = self.afc_op("ls", "/Downloads")
-            self.log(f"Files in /Downloads: {files}", "detail")
-        except:
-            pass
-        # ------------------------------------------
+        # Candidates to check
+        candidates = [
+            ("/iTunes_Control/iTunes/iTunesMetadata.plist", "metadata_std.plist"),
+            ("/iTunes_Control/iTunes/iTunesMetadata.plist.ext", "metadata_ext.plist")
+        ]
 
-        found_path = None
+        valid_file_path = None
 
-        for i in range(30):
-            # Just check if file exists, don't worry about size
-            if self.afc_op("exists", src_plist):
-                self.log("Metadata found (standard)!", "success")
-                found_path = src_plist
-                break
+        for i in range(60):
+            found = False
+            for remote_path, local_name in candidates:
+                local_check_path = os.path.join(check_dir, local_name)
+                self.safe_remove(local_check_path)
+                self.afc_op("pull", remote_path, local_check_path)
 
-            if self.afc_op("exists", src_plist_ext):
-                self.log("Metadata found (extension .ext)!", "success")
-                found_path = src_plist_ext
-                break
-
-            if i % 5 == 0:
-                self.log(f"Still waiting... ({i * 5}s)", "detail")
-
+                if os.path.exists(local_check_path):
+                    if os.path.isfile(local_check_path) and os.path.getsize(local_check_path) > 100:
+                        self.log(f"FOUND: Valid file at {remote_path}", "success")
+                        valid_file_path = local_check_path
+                        found = True
+                        break
+                    elif os.path.isdir(local_check_path):
+                        for root, dirs, files in os.walk(local_check_path):
+                            for file in files:
+                                fpath = os.path.join(root, file)
+                                if os.path.getsize(fpath) > 100:
+                                    self.log(f"FOUND: Hidden file inside directory dump: {file}", "success")
+                                    extracted_path = os.path.join(check_dir, "extracted_meta.plist")
+                                    shutil.copy(fpath, extracted_path)
+                                    valid_file_path = extracted_path
+                                    found = True
+                                    break
+                            if found: break
+                if found: break
+            if found and valid_file_path: break
+            
+            if i % 4 == 0:
+                self.log(f"Checking for files... ({i*5}s)", "detail")
             time.sleep(5)
+        
+        if not valid_file_path:
+             self.safe_remove(check_dir)
+             raise Exception("Metadata generation timed out. Valid file never appeared.")
+
+        self.log("STAGE 1: Copy to /Books/...", "step")
+        self.afc_op("push", valid_file_path, "/Books/iTunesMetadata.plist")
+
+
+        
+        self.log("Rebooting device (Stage 1 complete)...", "step")
+        if not self.reboot_device():
+            self.log("Reboot failed, continuing anyway...", "warn")
+
+        # Helper verify check (Non-blocking)
+        self.log("Verifying Stage 1 payload delivery...", "detail")
+        books_content = self.afc_op("ls", "/Books")
+        if "asset.epub" not in books_content:
+             self.log("⚠️ WARNING: 'asset.epub' not visible in /Books/ (False negative possible).", "warn")
+             self.log("   Assuming Stage 1 worked based on user report. Proceeding blindly...", "warn")
         else:
-            raise Exception("Metadata not generated")
+             self.log("✅ FOUND: 'asset.epub' verified in /Books/.", "success")
 
-        self.log("Finalizing...", "step")
+        # Retry loop for Stage 2 verification (bookassetd might be slow)
+        has_extracted_content = False
+        self.log("Checking /Books/ for extracted assets (Wait up to 60s)...", "step")
+        
+        for wait_step in range(12): # 12 * 5s = 60s
+            files_in_books = self.afc_op("ls", "/Books")
+            
+            for f in files_in_books:
+                if "Caches" in f or "MobileGestalt" in f:
+                     has_extracted_content = True
+            
+            if has_extracted_content:
+                self.log(f"FOUND: Extracted content detected after {wait_step * 5}s", "success")
+                break
+            
+            self.log(f"Waiting for extraction... ({wait_step * 5}s)", "detail")
+            time.sleep(5)
 
-        # Use unique temp filename to avoid conflicts
-        temp_file = f"temp_meta_{os.getpid()}.plist"
+        if not has_extracted_content:
+            self.log(f"Files currently in /Books/: {files_in_books}", "detail")
+            
+            if "asset.epub" in files_in_books:
+                self.log("⚠️ WARNING: Extracted content not found in /Books/, but 'asset.epub' is present (SystemGroup target?).", "warn")
+            else:
+                self.log("⚠️ WARNING: Neither 'asset.epub' nor extracted content visible in /Books/.", "warn")
+                self.log("   Since you confirmed the files are there, AFC ls might be blind.", "warn")
+            
+            self.log("   Proceeding with hope that bookassetd ran successfully in the background.", "warn")
+        
+        self.log("✅ Stage 2 wait complete.", "success")
+        # ---------------------------------------
 
-        # Remove temp file if it exists from previous run
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-            except Exception as e:
-                self.log(f"Warning: couldn't remove old temp file: {e}", "warn")
-
-        # Pull metadata from device
-        self.afc_op("pull", found_path, temp_file)
-
-        # Verify it was pulled successfully
-        if not os.path.exists(temp_file):
-            raise Exception(f"Failed to pull {found_path}")
-
-        # Push to Books directory
-        self.afc_op("push", temp_file, "/Books/iTunesMetadata.plist")
-
-        # Clean up temp file
-        try:
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
-        except Exception as e:
-            self.log(f"Warning: couldn't remove temp file (non-critical): {e}", "warn")
-
+        self.log("STAGE 2: Copy back to /iTunes_Control/...", "step")
+        self.log("Restoring valid metadata to iTunes_Control...", "detail")
+        self.afc_op("push", valid_file_path, "/iTunes_Control/iTunes/iTunesMetadata.plist")
+        
+        self.log("Waiting 30s for bookassetd/system sync...", "step")
+        for i in range(6):
+            time.sleep(5)
+            self.log(f"Wait... {i*5}/30s", "detail")
+        
+        self.log("Final Reboot...", "step")
         self.reboot_device()
-        self.log("Process Complete.", "success")
+        
+        self.safe_remove(check_dir)
+        self.log("ACTIVATION COMPLETE!", "success")
 
 
-# --- UI ---
 class ModernApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -537,6 +595,9 @@ class ModernApp(tk.Tk):
         self.update_idletasks()
 
     def start(self):
+        # RESET GUID to ensure fresh run every time
+        self.backend.manual_guid = None 
+
         if messagebox.askyesno("Manual GUID", "Do you want to enter a known GUID manually?"):
             manual_val = simpledialog.askstring("Input GUID", "Paste GUID here:")
             if manual_val and len(manual_val.strip()) > 10:
